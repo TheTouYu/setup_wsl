@@ -119,6 +119,29 @@ if grep -qF 'swapFileIni' stages/windows/50-wslconfig.ps1; then
 else
     say_fail '50-wslconfig 缺少 swapFile 反斜杠转义 —— WSL 会静默回退到 C 盘'
 fi
+if grep -qF 'autoProxyIni' stages/windows/50-wslconfig.ps1; then
+    say_ok '50-wslconfig 把 yes/no 转成 WSL 认的 true/false'
+else
+    say_fail '50-wslconfig 未转换布尔值 —— .wslconfig 不认 yes/no，该键会被忽略'
+fi
+if grep -qF -- '--allow-scripts' stages/linux/09-dsh.sh; then
+    say_ok '09-dsh 放行了原生模块安装脚本（npm 12+ 默认拦截）'
+else
+    say_fail '09-dsh 缺少 --allow-scripts —— koffi/node-pty 会装成空壳'
+fi
+# 精确匹配服务单元里的赋值，避免命中注释里对 all_proxy 的说明
+if grep -qF 'Environment=all_proxy' stages/linux/09-dsh.sh; then
+    say_fail '09-dsh 的服务单元设置了 all_proxy —— Node 程序不认 socks5，只应设 http 代理'
+else
+    say_ok '09-dsh 的服务单元只设 http 代理（不含 socks5 的 all_proxy）'
+fi
+# 匹配真实调用（New-ScheduledTaskAction/Trigger/Settings 系列 cmdlet），
+# 而不是注释里对"为什么不用任务计划"的说明文字
+if grep -qF 'New-ScheduledTask' stages/windows/80-dsh-autostart.ps1; then
+    say_fail '80-dsh-autostart 真的调用了计划任务 API —— 非管理员会 Access is denied'
+else
+    say_ok '80-dsh-autostart 用启动文件夹方案（无需管理员）'
+fi
 # 只检查代码行，注释里提到 ?? 不算（本仓库的注释里确实会提到它）
 if grep -nE '\?\?' bootstrap.ps1 lib/windows/*.ps1 stages/windows/*.ps1 2>/dev/null \
         | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' >/dev/null; then

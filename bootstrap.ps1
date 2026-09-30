@@ -64,6 +64,7 @@ $allStages = @(
     [pscustomobject]@{ Id = '50'; File = '50-wslconfig.ps1';       Title = '配置 .wslconfig' }
     [pscustomobject]@{ Id = '60'; File = '60-shortcut.ps1';        Title = '创建开始菜单快捷方式' }
     [pscustomobject]@{ Id = '70'; File = '70-provision.ps1';       Title = '配置发行版内部环境' }
+    [pscustomobject]@{ Id = '80'; File = '80-dsh-autostart.ps1';   Title = 'DSH 服务与开机自启' }
     [pscustomobject]@{ Id = '90'; File = '90-verify.ps1';          Title = '端到端验证' }
 )
 

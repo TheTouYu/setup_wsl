@@ -652,6 +652,209 @@ retry 3 3 "pacman 同步" timeout 90 pacman -Sy
 
 ---
 
+## 19. WSL 里的 `127.0.0.1` 不是主机的 `127.0.0.1`（除非 mirrored）
+
+**现象**
+
+WSL 里设置了 `http_proxy=http://127.0.0.1:7897`（主机上的 Clash），
+但所有请求都连不上代理。而且 WSL 每次启动还会打印提示：
+
+```
+wsl: 检测到 localhost 代理配置，但未镜像到 WSL。NAT 模式下的 WSL 不支持 localhost 代理。
+```
+
+**真因**
+
+默认的 NAT 网络模式下，WSL 是一个独立子网里的虚拟机
+（例如 `172.19.x.x`），它自己的 `127.0.0.1` 是它自己的 loopback，
+根本不是主机的。那条提示说的就是这个事。
+
+**修法**
+
+`.wslconfig` 里开启镜像网络（要求 Win11 22H2+ 与 WSL 2.0+）：
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+生效后 WSL 的 `eth0` 直接持有主机的局域网 IP（例如 `192.168.0.110`），
+`127.0.0.1` 与主机完全互通 —— 主机代理、WSL 里监听的服务，双向直达。
+改动需要 `wsl --shutdown` 后重启才生效。
+
+**验证方法**：`wsl --shutdown` 重启后看 `ip -4 addr show eth0` 的地址
+是主机局域网 IP（mirrored 生效）还是 `172.x.x.x`（仍是 NAT）。
+
+**代码位置**：`stages/windows/50-wslconfig.ps1`（`NETWORKING_MODE` 配置项）
+
+---
+
+## 20. `autoProxy` 会把系统代理注入成全局环境变量，国内源反而被搞挂
+
+**现象**
+
+开启 mirrored 后，pacman 同步国内镜像突然报 SSL 错误；显式清空代理
+环境变量再跑，0.2 秒就通了。
+
+**真因**
+
+WSL 的 `autoProxy`（默认开启）把 Windows 的系统代理自动注入成了
+WSL 的环境变量（`https_proxy=http://127.0.0.1:7897` 等）。
+于是**所有**流量 —— 包括 pacman 访问国内镜像 —— 都被赶去走代理，
+而代理访问国内镜像反而失败（SSL 错误，绕路了）。
+
+**修法**
+
+显式关闭，让默认保持直连，需要代理的场合自己设置：
+
+```ini
+[wsl2]
+autoProxy=false
+```
+
+设计原则：**代理是按需的局部手段，不是全局默认**。
+国内源直连更快（0.2s vs 走代理失败/0.8s），只有访问 GitHub/npmjs
+这类国际源时才值得走代理 —— 而且那些步骤本来就会显式设置。
+
+**代码位置**：`stages/windows/50-wslconfig.ps1`（`AUTO_PROXY` 配置项）
+
+---
+
+## 21. npm 12+ 默认拦截原生模块的安装脚本，装出来的包是坏的
+
+**现象**
+
+`npm install -g @deepseek-ai/dsh` 成功返回，但运行 `dsh` 时报缺
+原生模块（koffi、node-pty），终端功能不可用。安装日志里其实有警告：
+
+```
+npm warn install-scripts 5 packages had install scripts blocked:
+  koffi@3.1.1 (install: node ./cnoke.cjs ...)
+  node-pty@1.2.0-beta.15 (install: node scripts/prebuild.js ...)
+```
+
+**真因**
+
+npm 12 引入了安装脚本白名单机制：没有显式允许的包，其 install /
+postinstall 脚本一律跳过。koffi、node-pty 这类原生绑定模块**必须**
+在安装时编译或下载预编译产物，脚本被拦等于装了个空壳。
+
+**修法**
+
+显式放行（一次性）：
+
+```bash
+npm install -g @deepseek-ai/dsh \
+    --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs
+```
+
+或者全局放行：`npm config set allow-scripts=... --location=user`。
+
+**代码位置**：`stages/linux/09-dsh.sh`
+
+---
+
+## 22. WSL 虚拟机会空闲自动关闭，后台的 systemd 服务拦不住
+
+**现象**
+
+配好了 systemd 用户服务 + linger，`systemctl --user status` 显示
+active，端口也在监听。但十几秒后再看，服务"停了"；日志里是一串
+`Started → Stopped → Started → Stopped` 循环。
+
+**真因**
+
+这不是服务崩溃，是 **WSL 虚拟机本身被回收了**。WSL2 在所有会话
+退出后会自动关闭虚拟机（默认空闲超时约十几秒），systemd、linger、
+用户服务统统跟着关。下一次任何 `wsl.exe` 调用再把虚拟机带起来，
+linger 又把服务拉起 —— 于是看起来像服务在"重启循环"。
+
+也就是说：**WSL 里的"开机自启"有两层** ——
+发行版内的 linger 只解决"虚拟机启动后服务跟随启动"；
+"虚拟机本身随 Windows 启动"必须由 Windows 侧解决。
+
+**修法**
+
+Windows 侧在**启动文件夹**放一个 VBS，登录时隐藏运行保活进程：
+
+```vbs
+Set sh = CreateObject("WScript.Shell")
+sh.Run "wsl.exe -d archlinux -u h --exec sleep infinity", 0, False
+```
+
+它把虚拟机带起来（linger 随即拉起服务）并阻止空闲回收。
+
+为什么不用任务计划：`Register-ScheduledTask` 需要管理员权限
+（真机实测非管理员返回 Access is denied / 0x80070005），
+而启动文件夹方案永远可用，用户 `Win+R` 输入 `shell:startup`
+就能看到并管理。VBS 的第二个参数 `0` 保证隐藏窗口、无闪现。
+
+**代码位置**：`stages/windows/80-dsh-autostart.ps1`
+
+---
+
+## 23. `all_proxy=socks5://` 会被很多 Node.js 程序拒绝
+
+**现象**
+
+DSH 启动时打印：
+
+```
+dsh: all_proxy names a SOCKS proxy, which is not supported;
+connecting directly for that scheme — set an http:// or https:// proxy URL instead
+```
+
+代理对 socks5 的目标"没生效"。
+
+**真因**
+
+Node.js 生态的 HTTP 客户端（undici 等）普遍只支持 `http://` /
+`https://` 形式的代理 URL。`all_proxy=socks5://...` 这种写法
+curl 认、很多 Node 程序不认 —— 它们直接放弃这个变量所 cover 的协议。
+
+**修法**
+
+给 Node 程序配代理时只用 http 形式：
+
+```
+http_proxy=http://127.0.0.1:7897
+https_proxy=http://127.0.0.1:7897
+```
+
+Clash/mihomo 的混合端口（7897 这类）本身就同时接受 HTTP 和 SOCKS5，
+写成 `http://` 不损失任何能力。
+
+**代码位置**：`stages/linux/09-dsh.sh`（服务单元只设 http 代理，注释说明原因）
+
+---
+
+## 24. `.wslconfig` 的布尔值只认 `true/false`，不认 `yes/no`
+
+**现象**
+
+写入 `autoProxy=no` 后，WSL 启动时报：
+
+```
+wsl: no:wsl2.autoProxy - 未验证 C:\Users\<用户>\.wslconfig 中的设置，因为不支持该值
+```
+
+该键被整个忽略，等于没写。
+
+**真因**
+
+本项目配置文件统一用 `yes/no`（两侧解析方便），但 `.wslconfig` 是
+WSL 自己的 INI 方言，布尔值**只接受 `true` / `false`**。
+两套约定撞在一起，直接把配置值透传就会踩雷。
+
+**修法**
+
+写入前显式转换：`yes → true`，`no → false`。
+涉及布尔键（autoProxy、dnsTunneling、firewall 等）都要过这一层。
+
+**代码位置**：`stages/windows/50-wslconfig.ps1`（`Test-SetupSwitch` 后转换）
+
+---
+
 ## 附：几条排查心法
 
 1. **报错信息经常指错方向**。`Resolving timed out` 的真因是文件沙箱；

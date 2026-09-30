@@ -2,6 +2,46 @@
 
 本文件记录每个版本的变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.2.0] - 2026-09-30
+
+新增：与主机共用网络（mirrored）、DeepSeek Harness（DSH）安装与开机自启。
+
+### 新增
+
+**网络（阶段 50 扩展）**
+- `NETWORKING_MODE=mirrored`：WSL 与主机共用网络栈，localhost 双向可达，
+  这是"WSL 里直接用 `127.0.0.1:7897` 访问主机代理"的前提
+- `AUTO_PROXY=no`：关闭系统代理自动注入 —— 实测开着会让国内镜像也走代理并失败，
+  关掉后默认直连，需要代理处（DSH）自行显式设置
+
+**DeepSeek Harness（新阶段）**
+- Linux `09-dsh.sh`：经代理安装 `@deepseek-ai/dsh`（含 `--allow-scripts`
+  处理原生模块）、systemd 用户服务、`enable-linger`、`dsh-url` 辅助命令
+- Windows `80-dsh-autostart.ps1`：登录触发的任务计划保活 WSL 虚拟机
+  （拦住空闲回收，让 linger 拉起服务）、"DSH Web" 开始菜单快捷方式
+- 验证阶段新增 DSH 检查（安装、active、端口、linger、dsh-url）
+
+### 修复（真机验证发现）
+
+- `Write-SetupLog` 的 `Message` 参数加 `[AllowEmptyString()]`：
+  Mandatory string 默认拒绝空串，导致"打印成功后退出码 1"
+- `Invoke-NativeCapture` 统一封装 WSL 调用：临时降级错误偏好，
+  避免原生程序 stderr（如 WSL 固定的 localhost 代理提示）被提升为终止性错误
+- `99-verify.sh` 在 source 公共库后显式 `set +e`：
+  库顶部的 `set -e` 会作用于调用方，诊断脚本被它管住后跑到一半静默中止
+- 网络类检查加有界重试（`retry 3 3`）：镜像偶发抖动不再误判为配置失败
+- `50-wslconfig.ps1` 的 `swapFile` 写入双反斜杠：单反斜杠会被 WSL 的
+  INI 转义吃掉，静默回退到 C 盘
+- `.cmd` 改为纯 ASCII：cmd.exe 按 OEM 代码页解析，任何非 ASCII 字节
+  都会破坏命令解析（BOM 也不行）
+
+### 工程配套
+
+- `tests/lint.sh` 新增：行尾空格检查、`swapFile` 转义回归检查、
+  PS7 语法检查（排除注释）
+- `tests/lint-powershell.ps1` 新增：UTF-8 BOM 检查、`.cmd` 纯 ASCII 检查
+- `docs/PITFALLS.md` 从 13 条扩充到 20 条，全部来自真机实测
+
 ## [0.1.0] - 2026-09-30
 
 首个版本。把"从零创建 WSL Arch 开发环境"的完整流程工程化。

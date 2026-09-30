@@ -184,7 +184,37 @@ else
     WARN=$((WARN + 1))
 fi
 
-sw_step "9. 资源"
+sw_step "9. DeepSeek Harness"
+if sw_switch_on "${DSH_INSTALL:-yes}"; then
+    port="${DSH_PORT:-3080}"
+    if command -v dsh >/dev/null 2>&1; then
+        sw_ok "dsh 已安装：$(dsh --version 2>/dev/null | head -1)"
+    else
+        sw_warn "dsh 未安装（阶段 09 应处理）"
+        WARN=$((WARN + 1))
+    fi
+    if sw_user_exists "$LINUX_USER"; then
+        state="$(runuser -u "$LINUX_USER" -- bash -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); systemctl --user is-active dsh.service 2>/dev/null' || true)"
+        if [[ "$state" == "active" ]]; then
+            sw_ok "dsh.service 运行中（active）"
+        else
+            sw_warn "dsh.service 未运行（当前：${state:-未知}）"
+            WARN=$((WARN + 1))
+        fi
+    fi
+    if ss -tln 2>/dev/null | grep -q ":${port} "; then
+        sw_ok "端口 ${port} 在监听"
+    else
+        sw_warn "端口 ${port} 未监听"
+        WARN=$((WARN + 1))
+    fi
+    check "linger 已启用（开机自启前提）"  bash -c "loginctl show-user '$LINUX_USER' 2>/dev/null | grep -q 'Linger=yes'"
+    check "dsh-url 辅助命令可用"           bash -c "test -x /usr/local/bin/dsh-url"
+else
+    sw_info "DSH_INSTALL=no，跳过"
+fi
+
+sw_step "10. 资源"
 df -h / | tail -1 | sed 's/^/    /'
 free -h | head -2 | sed 's/^/    /'
 

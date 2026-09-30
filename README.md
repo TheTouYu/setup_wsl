@@ -85,6 +85,12 @@ copy config\local.conf.example config\local.conf
 | `EXTRA_PACKAGES` | 空 | 追加包，逗号分隔 |
 | `INSTALL_DEVTOOLS` | `yes` | 是否装开发环境（`data/packages-dev.txt`） |
 | `SETUP_SSH` | `yes` | 是否生成 SSH 密钥并配置 GitHub 443 回退 |
+| `NETWORKING_MODE` | `mirrored` | 与主机共用网络栈（localhost 双向可达，能用主机代理） |
+| `AUTO_PROXY` | `no` | 不自动注入系统代理，国内源保持直连 |
+| `DSH_INSTALL` | `yes` | 安装 DeepSeek Harness 并配置为用户级服务 |
+| `DSH_PROXY` | `http://127.0.0.1:7897` | 安装与服务使用的代理；留空 = 直连 |
+| `DSH_PORT` | `3080` | DSH Web UI 端口 |
+| `DSH_AUTOSTART` | `yes` | 注册 Windows 登录自启（任务计划保活 WSL） |
 
 配置格式是严格的 `KEY=value`：值内不能有空格、不加引号、列表用英文逗号分隔。
 两侧解析器（PowerShell 与 bash）都按同一套规则解析，`tests/lint.sh` 会校验格式。
@@ -102,9 +108,10 @@ copy config\local.conf.example config\local.conf
 | 20 | 安装 WSL 本体 | ✔ | 优先走 Microsoft Store 通道 |
 | 30 | 获取镜像 | — | 下载官方 `.wsl` + **双镜像 SHA256 交叉校验** |
 | 40 | 导入发行版 | — | `wsl --import` 到指定目录（默认 D 盘） |
-| 50 | 配置 `.wslconfig` | — | 交换文件挪到安装盘，段级合并不覆盖用户设置 |
+| 50 | 配置 `.wslconfig` | — | 交换文件挪盘、`networkingMode=mirrored`、`autoProxy` |
 | 60 | 创建快捷方式 | — | 开始菜单入口，用镜像自带图标 |
 | 70 | 配置发行版 | — | 在发行版内执行全部 Linux 阶段 |
+| 80 | DSH 服务与开机自启 | — | 启动文件夹 VBS 保活 WSL + "DSH Web" 快捷方式 |
 | 90 | 端到端验证 | — | 只读，报告真实状态 |
 
 Linux 侧阶段（由 70 驱动，也可在发行版内单独执行）：
@@ -119,6 +126,7 @@ Linux 侧阶段（由 70 驱动，也可在发行版内单独执行）：
 | 06 | 语言环境 | locale 生成、时区 |
 | 07 | 语言包源 | pip / npm / go 国内源 |
 | 08 | SSH | 生成 ed25519 密钥、GitHub 443 回退、预置 known_hosts |
+| 09 | DSH | 安装 DeepSeek Harness、systemd 用户服务、linger、`dsh-url` |
 | 99 | 验证 | 端到端体检（国内源必须**真的拉到包**才算通过） |
 
 单独重跑某个阶段：
@@ -206,6 +214,26 @@ setup_wsl/
 改 `INSTALL_ROOT` 后重跑；已有的发行版需要先
 `wsl --unregister archlinux`（会删除数据），或用
 `wsl --manage archlinux --move <新路径>` 迁移。
+
+**DSH 怎么访问？装好之后**
+浏览器打开 `http://127.0.0.1:3080`。第一次需要带 token —— 在 WSL 里执行
+`dsh-url` 会打印完整地址；打开一次之后浏览器会记住会话，之后直接开
+`http://127.0.0.1:3080` 或点开始菜单的 "DSH Web" 就行。
+
+**重启电脑后 DSH 没起来？**
+自启链路是：Windows 登录 → 启动文件夹里的 `setup-wsl-dsh-keepalive.vbs`
+（隐藏窗口保活 WSL）→ linger 拉起 `dsh.service`。排查顺序：
+1. 按 `Win+R` 输入 `shell:startup`，确认有 `setup-wsl-dsh-keepalive.vbs`
+2. `wsl -d archlinux` 进去后 `systemctl --user status dsh`
+3. 都正常但浏览器 401 → 服务重启生成了新 token，执行 `dsh-url` 取新地址
+
+不再需要自启时：删掉 `shell:startup` 里的那个 `.vbs` 文件即可。
+
+**为什么镜像源不走代理？**
+`autoProxy=no` + 国内源直连是**故意的**：实测代理访问国内镜像反而失败
+（SSL 错误），直连 0.2 秒。代理只在需要的地方（装 DSH）显式使用。
+前提是 `NETWORKING_MODE=mirrored`，这样 WSL 里的 `127.0.0.1` 就是主机，
+`DSH_PROXY=http://127.0.0.1:7897` 才够得到主机上的代理。
 
 ---
 
