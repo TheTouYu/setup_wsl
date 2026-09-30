@@ -1,0 +1,21 @@
+# 本地配置（可能含密码等敏感值，绝不提交）
+config/local.conf
+
+# 运行产物
+logs/
+downloads/
+.state/
+*.log
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Python（供 tests/ 使用）
+__pycache__/
+*.py[cod]
+.venv/

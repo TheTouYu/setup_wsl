@@ -1,0 +1,22 @@
+# ============================================================
+#  setup_wsl 本地覆盖配置
+# ------------------------------------------------------------
+#  用法：把本文件复制为 config/local.conf，只写要覆盖的键。
+#        config/local.conf 已在 .gitignore 中，不会被提交。
+# ============================================================
+
+# 示例：装到 E 盘、换个用户名
+# INSTALL_ROOT=E:/WSL
+# LINUX_USER=dongzhi
+
+# 示例：无交互安装时提供密码（明文，仅限本机私有环境）
+# LINUX_PASSWORD=h
+
+# 示例：改用 Arch 官方源
+# MIRROR_PROFILE=official
+
+# 示例：切换成中文环境
+# LOCALE_LANG=zh_CN.UTF-8
+
+# 示例：追加软件包
+# EXTRA_PACKAGES=docker,nodejs,npm
