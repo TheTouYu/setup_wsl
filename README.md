@@ -168,9 +168,14 @@ setup_wsl/
 │   ├── lint.sh                bash 语法 / shellcheck / 配置格式 / 回归检查
 │   └── lint-powershell.ps1    PS 语法 + BOM 检查
 └── docs/
+    ├── HANDOFF.md             ★ 交接文档：状态、环境、未验证路径、下一步
     ├── PITFALLS.md            ★ 真实踩过的坑与根因
     └── ARCHITECTURE.md        设计说明
 ```
+
+> **给 AI Agent**：请先读 [AGENTS.md](AGENTS.md)（操作契约），再读
+> [docs/HANDOFF.md](docs/HANDOFF.md)（当前状态与验证边界）。
+> **给接手维护的人**：先读 [docs/HANDOFF.md](docs/HANDOFF.md)。
 
 ---
 
